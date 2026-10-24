@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>VentureRadar</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: Segoe UI, system-ui, sans-serif; background: #0b0d10; color: #e8ebf2; }
+    aside { width: 210px; border-right: 1px solid #232833; padding: 20px; position: fixed; inset: 0 auto 0 0; background: #12151b; }
+    main { margin-left: 210px; padding: 24px 32px; }
+    a, button { color: #7c9cff; }
+    button { background: #1a2030; border: 1px solid #232833; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+    .banner { background: #3a2a10; border: 1px solid #8a6a2a; color: #f3e2b0; padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .card { background: #12151b; border: 1px solid #232833; border-radius: 8px; padding: 12px; }
+    .muted { color: #8b93a7; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 6px; border-top: 1px solid #232833; }
+    nav a { display: block; padding: 8px 10px; text-decoration: none; border-radius: 6px; color: #8b93a7; }
+    nav a.active, nav a:hover { background: #ffffff14; color: #fff; }
+    .page { display: none; }
+    .page.active { display: block; }
+    pre { white-space: pre-wrap; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <aside>
+    <strong>VentureRadar</strong>
+    <nav>
+      <a href="#dash" class="active" data-page="dash">Dashboard</a>
+      <a href="#opps" data-page="opps">Opportunities</a>
+      <a href="#problems" data-page="problems">Problems</a>
+      <a href="#research" data-page="research">Research</a>
+      <a href="#settings" data-page="settings">Settings</a>
+    </nav>
+  </aside>
+  <main>
+    <div class="banner">Synthetic research mode. Live social-media collection is not operational. dataset=synthetic_labeled — not real-world model performance.</div>
+    <section id="dash" class="page active"></section>
+    <section id="opps" class="page"></section>
+    <section id="problems" class="page"></section>
+    <section id="research" class="page"></section>
+    <section id="settings" class="page"></section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    async function get(path) { return (await fetch(path)).json(); }
+    async function post(path) { return (await fetch(path, {method:'POST'})).json(); }
+
+    async function renderDash() {
+      const d = await get('/api/dashboard');
+      const t = d.totals;
+      $('dash').innerHTML = `
+        <h1>Dashboard</h1>
+        <div class="cards">
+          ${[['Problems', t.problems],['Opportunities', t.opportunities],['Verified', t.high_priority],['Reddit', t.reddit_posts],['X', t.x_posts],['Est. cost', t.estimated_cost],['Last run', d.last_run]].map(([k,v]) => `<div class="card"><div class="muted">${k}</div><div>${v ?? '—'}</div></div>`).join('')}
+        </div>
+        <h2>Top opportunities</h2>
+        <table><tr><th>Name</th><th>Customer</th><th>Observed</th><th>Complete</th><th>Conservative heuristic</th><th>Founder fit</th><th>Status</th></tr>
+        ${(d.top_opportunities||[]).map(o => `<tr>
+          <td><a href="#opp-${o.id}" data-opp="${o.id}">${o.working_name}</a> ${o.is_provisional?'<span class="muted">provisional</span>':''} ${o.verified?'<span class="muted">verified</span>':''}</td>
+          <td>${o.target_customer}</td><td>${o.observed_quality_score ?? '—'}</td>
+          <td>${o.research_completeness != null ? Math.round(o.research_completeness*100)+'%' : '—'}</td>
+          <td>${o.conservative_score ?? '—'}</td><td>${o.founder_fit_score ?? '—'}</td>
+          <td>${o.quality_status} · ${o.trend === 'insufficient_comparable_data' ? 'Insufficient comparable data' : o.trend}</td>
+        </tr>`).join('')}</table>`;
+    }
+
+    async function renderOpps() {
+      const d = await get('/api/opportunities?ranking=highest_opportunity');
+      $('opps').innerHTML = `<h1>Opportunities</h1>` + (d.items||[]).map(o => `
+        <div class="card" style="margin-bottom:10px">
+          <a href="#opp-${o.id}" data-opp="${o.id}"><strong>${o.working_name}</strong></a>
+          <div class="muted">${o.one_line_pitch}</div>
+          <div class="muted">observed ${o.observed_quality_score} · complete ${Math.round((o.research_completeness||0)*100)}% · conservative heuristic ${o.conservative_score} · founder ${o.founder_fit_score} · ${o.is_provisional?'provisional':'evaluated'}</div>
+        </div>`).join('');
+    }
+
+    async function renderOpp(id) {
+      const d = await get('/api/opportunities/' + id);
+      const o = d.opportunity;
+      $('opps').innerHTML = `
+        <h1>${o.working_name}</h1>
+        <p>${o.one_line_pitch}</p>
+        <div class="cards">
+          <div class="card">Observed quality<div>${o.observed_quality_score}</div></div>
+          <div class="card">Completeness<div>${Math.round(o.research_completeness*100)}%</div></div>
+          <div class="card">Conservative heuristic<div>${o.conservative_score}</div><div class="muted">Not a statistical lower bound</div></div>
+          <div class="card">Founder fit (separate)<div>${o.founder_fit_score}</div></div>
+        </div>
+        <h3>Problem</h3><p>${o.customer_problem}</p>
+        <h3>Solution</h3><p>${o.proposed_solution}</p>
+        <h3>Evidence</h3>${(d.evidence||[]).map(e => `<div><a href="${e.source_url}">${e.claim}</a><div class="muted">“${e.quote||''}”</div></div>`).join('')}
+        <h3>Competitors</h3>${(d.competitors||[]).map(c => `<div>${c.name} · ${c.status}<div class="muted">${c.notes}</div></div>`).join('')}
+        <h3>Factors</h3>${(d.factors||[]).map(f => `<div><strong>${f.criterion}</strong> ${f.status} ${f.score ?? 'unknown/unresearched'}<div class="muted">${f.explanation}</div></div>`).join('')}
+        <h3>Skeptic</h3><pre>${JSON.stringify(d.audit, null, 2)}</pre>`;
+      show('opps');
+    }
+
+    async function renderProblems() {
+      const d = await get('/api/problems');
+      $('problems').innerHTML = `<h1>Problem database</h1><table><tr><th>Problem</th><th>Industry</th><th>Segment</th><th>Sev</th><th>Evidence</th><th>Trend</th></tr>
+        ${(d.items||[]).map(p => `<tr><td>${p.canonical_title}</td><td>${p.industry}</td><td>${p.customer_segment}</td><td>${p.severity_score}</td><td>${p.independent_observation_count}</td><td>${p.trend==='insufficient_comparable_data'?'Insufficient comparable data':p.trend}</td></tr>`).join('')}</table>`;
+    }
+
+    async function renderResearch() {
+      const d = await get('/api/research/ops');
+      $('research').innerHTML = `<h1>Research operations</h1>
+        <p class="muted">${d.banner}</p>
+        <p><button id="run">Run synthetic pipeline</button> <button id="pause">Pause</button> <button id="resume">Resume</button> ${d.paused?'Paused':'Active'}</p>
+        <div class="cards">${Object.entries(d.agents||{}).map(([n,a]) => `<div class="card"><strong>${n}</strong><div>${a.status}</div><div class="muted">tasks ${a.completed_tasks} · errors ${a.errors}</div></div>`).join('')}</div>
+        <h3>History</h3>${(d.history||[]).map(h => `<div class="muted">${h.status} · ${h.trigger}</div>`).join('')}
+        <p>APIs: Reddit ${d.source_api.reddit} · X ${d.source_api.x}</p>`;
+      $('run').onclick = async () => { await post('/api/research/run'); renderResearch(); };
+      $('pause').onclick = async () => { await post('/api/research/pause'); renderResearch(); };
+      $('resume').onclick = async () => { await post('/api/research/resume'); renderResearch(); };
+    }
+
+    async function renderSettings() {
+      const d = await get('/api/settings');
+      $('settings').innerHTML = `<h1>Settings</h1>
+        <pre>${JSON.stringify({live:d.live_collection_operational, credentials:d.credentials_configured, founder:d.founder_profile, budgets:d.budgets}, null, 2)}</pre>
+        <h3>Retention policies</h3>${(d.retention_policies||[]).map(p => `<div><strong>${p.platform} ${p.rule_type}</strong><div class="muted">${p.source_of_rule}</div></div>`).join('')}`;
+    }
+
+    function show(id) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('nav a').forEach(a => a.classList.toggle('active', a.dataset.page===id));
+      $(id).classList.add('active');
+    }
+
+    document.querySelectorAll('nav a').forEach(a => a.onclick = (e) => {
+      e.preventDefault();
+      const page = a.dataset.page;
+      show(page);
+      ({dash:renderDash, opps:renderOpps, problems:renderProblems, research:renderResearch, settings:renderSettings})[page]();
+    });
+    document.body.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-opp]');
+      if (t) { e.preventDefault(); renderOpp(t.dataset.opp); }
+    });
+    renderDash();
+  </script>
+</body>
+</html>

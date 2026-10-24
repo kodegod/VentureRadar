@@ -1,0 +1,1 @@
+"""Deterministic services — not agents."""
